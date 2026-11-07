@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7B1FA2">
+<meta name="description" content="Журнал мастера: учёт клиентов, процедур, стоимости и напоминаний.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Журнал">
+<title>Журнал Мастера</title>
+<!--
+  Журнал Мастера — PWA без сервера.
+  Данные хранятся в IndexedDB браузера (локально, никуда не отправляются).
+
+  Как запустить:
+    1) Локально:  python -m http.server 8080   ->  http://localhost:8080
+       (по file:// приложение тоже работает, но Service Worker и установка недоступны)
+    2) Хостинг: положите папку на GitHub Pages / Netlify / любой статический хостинг.
+       Установка приложения появится в браузере, когда сайт открыт по HTTPS.
+
+  Резервная копия: вкладка «Статистика» -> «Скачать резервную копию».
+-->
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  :root{
+    --brand:#8E24AA;
+    --brand-2:#5E35B1;
+    --brand-soft:#F4E9F8;
+    --bg:#F6F5F9;
+    --text:#221A2C;
+    --muted:#7C7488;
+    --line:#ECE7F2;
+    --danger:#D93B3B;
+    --warn:#E8890C;
+    --nav-h:66px;
+    --shadow:0 2px 10px rgba(48,22,72,.07),0 1px 2px rgba(48,22,72,.05);
+    --radius:16px;
+  }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    background:var(--bg);color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;overflow-x:hidden;
+    padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 20px);
+  }
+  button,input,select{font-family:inherit}
+
+  /* ---------- Шапка ---------- */
+  .header{
+    position:relative;overflow:hidden;
+    background:linear-gradient(135deg,#9C27B0 0%,#673AB7 55%,#5E35B1 100%);
+    color:#fff;
+    padding:calc(env(safe-area-inset-top) + 22px) 20px 24px;
+    border-radius:0 0 26px 26px;
+    box-shadow:0 8px 24px rgba(94,53,177,.28);
+  }
+  .header::after{
+    content:'';position:absolute;width:230px;height:230px;border-radius:50%;
+    background:rgba(255,255,255,.10);top:-100px;right:-70px;pointer-events:none;
+  }
+  .header h1{font-size:22px;font-weight:700;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+  .header p{font-size:13px;opacity:.82;margin-top:5px}
+  .install-btn{
+    display:none;align-items:center;gap:7px;margin-top:14px;
+    background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.38);
+    color:#fff;font-size:13px;font-weight:600;padding:9px 15px;border-radius:999px;
+    cursor:pointer;backdrop-filter:blur(6px);transition:background .18s;
+  }
+  .install-btn.show{display:inline-flex}
+  .install-btn:active{background:rgba(255,255,255,.28)}
+
+  .container{padding:16px;max-width:640px;margin:0 auto}
+
+  /* ---------- Карточки ---------- */
+  .card{background:#fff;border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
+  .card h2{font-size:15px;font-weight:700;color:var(--brand);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card h2 .hint{font-weight:500;color:var(--muted);font-size:12px}
+
+  .section{display:none}
+  .section.active{display:block;animation:fade .22s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ---------- Формы ---------- */
+  .field{margin-bottom:12px;min-width:0}
+  .field label{display:block;font-size:13px;font-weight:600;color:#564B64;margin-bottom:6px}
+  .field input,.field select{
+    width:100%;min-width:0;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;
+    font-size:16px;color:var(--text);background:#fff;transition:border-color .16s,box-shadow .16s;
+    appearance:none;-webkit-appearance:none;
+  }
+  .field select{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237C7488' d='M1.4 0 6 4.6 10.6 0 12 1.4 6 7.4 0 1.4z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
+  .field input:focus,.field select:focus{
+    border-color:var(--brand);box-shadow:0 0 0 3px rgba(142,36,170,.13);outline:none;
+  }
+  .field input::placeholder{color:#B6AEC1}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row > *{min-width:0}
+
+  .btn{
+    width:100%;padding:14px;border:none;border-radius:12px;font-size:15px;font-weight:600;
+    background:linear-gradient(135deg,#9C27B0,#5E35B1);color:#fff;cursor:pointer;
+    box-shadow:0 6px 16px rgba(124,36,160,.26);
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    transition:transform .12s,box-shadow .12s,background .18s;
+  }
+  .btn:active{transform:scale(.985);box-shadow:0 3px 10px rgba(124,36,160,.22)}
+  .btn.ghost{background:#fff;color:var(--brand);border:1.5px solid #E6D8EE;box-shadow:none}
+  .btn.ghost:active{background:var(--brand-soft)}
+  .btn.hidden{display:none}
+
+  /* ---------- Записи ---------- */
+  .record{
+    background:#fff;border-radius:14px;padding:14px 14px 12px;margin-bottom:10px;
+    box-shadow:var(--shadow);border-left:3px solid var(--brand);
+  }
+  .record-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .record-date{font-size:12px;font-weight:600;color:var(--brand);letter-spacing:.02em}
+  .record-name{font-size:16px;font-weight:700;margin-top:3px;word-break:break-word}
+  .record-actions{display:flex;gap:4px;flex-shrink:0}
+  .icon-btn{
+    width:32px;height:32px;display:grid;place-items:center;border:none;border-radius:9px;
+    background:#F5F1F8;color:#6E6379;font-size:14px;cursor:pointer;line-height:1;transition:background .16s,color .16s;
+  }
+  .icon-btn:active{background:#EAE2F1}
+  .icon-btn.danger{color:#B4463F}
+  .icon-btn.danger:active{background:#FCEBEA}
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .badge{
+    font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:999px;
+    background:#F3F0F7;color:#5E5568;white-space:nowrap;
+  }
+  .badge.brand{background:var(--brand-soft);color:#7B1FA2}
+  .record-foot{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    margin-top:11px;padding-top:10px;border-top:1px solid #F3EFF7;
+  }
+  .price{font-size:15px;font-weight:700;color:var(--brand)}
+  .signs{font-size:11.5px;color:#9A93A4;text-align:right;line-height:1.45;word-break:break-word}
+  .search{margin-bottom:12px;position:relative}
+  .search input{
+    width:100%;padding:11px 14px 11px 38px;border:1.5px solid var(--line);border-radius:12px;
+    font-size:15px;background:#fff;
+  }
+  .search input:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(142,36,170,.13);outline:none}
+  .search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:16px;height:16px;stroke:#A79FB1;fill:none;stroke-width:2}
+
+  /* ---------- Напоминания ---------- */
+  .reminder{
+    display:flex;gap:11px;align-items:flex-start;
+    background:#fff;border-radius:14px;padding:13px 14px;margin-bottom:10px;
+    box-shadow:var(--shadow);border-left:3px solid var(--warn);
+  }
+  .reminder.overdue{border-left-color:var(--danger);background:#FFFAF9}
+  .reminder-body{flex:1;min-width:0}
+  .reminder-text{font-size:14.5px;font-weight:600;word-break:break-word}
+  .reminder-time{font-size:12px;color:var(--warn);margin-top:4px;font-weight:500}
+  .reminder.overdue .reminder-time{color:var(--danger)}
+
+  /* ---------- Статистика ---------- */
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{border-radius:14px;padding:15px;color:#fff;box-shadow:0 4px 14px rgba(124,36,160,.2)}
+  .stat:nth-child(1){background:linear-gradient(135deg,#9C27B0,#7B1FA2)}
+  .stat:nth-child(2){background:linear-gradient(135deg,#7E57C2,#5E35B1)}
+  .stat:nth-child(3){background:linear-gradient(135deg,#AB47BC,#8E24AA)}
+  .stat:nth-child(4){background:linear-gradient(135deg,#26A69A,#00897B)}
+  .stat .v{font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1.25;word-break:break-word}
+  .stat .l{font-size:11px;opacity:.88;margin-top:4px}
+
+  /* ---------- Шаблоны ---------- */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{
+    background:#FAF7FC;border:1.5px solid #EBDFF3;border-radius:999px;
+    padding:9px 14px;font-size:13px;font-weight:600;color:#5E35B1;cursor:pointer;
+    transition:background .16s,border-color .16s;
+  }
+  .chip:active{background:var(--brand-soft);border-color:var(--brand)}
+  .chip-row{display:flex;align-items:center;gap:6px}
+  .chip-del{border:none;background:none;color:#B4463F;font-size:15px;cursor:pointer;padding:4px 2px;line-height:1}
+
+  /* ---------- Пустое состояние ---------- */
+  .empty{text-align:center;color:#AAA2B4;font-size:14px;padding:26px 12px;line-height:1.6}
+
+  /* ---------- Нижняя навигация ---------- */
+  .nav{
+    position:fixed;left:0;right:0;bottom:0;z-index:40;
+    display:flex;gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom));
+    background:rgba(255,255,255,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border-top:1px solid var(--line);box-shadow:0 -3px 18px rgba(48,22,72,.07);
+  }
+  .nav-btn{
+    flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+    padding:7px 2px;border:none;border-radius:12px;background:none;cursor:pointer;
+    color:var(--muted);font-size:11px;font-weight:600;position:relative;
+    transition:color .18s,background .18s;
+  }
+  .nav-btn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .nav-btn.active{color:var(--brand);background:var(--brand-soft)}
+  .nav-badge{
+    position:absolute;top:3px;left:calc(50% + 5px);min-width:17px;height:17px;padding:0 5px;
+    border-radius:9px;background:#F4511E;color:#fff;font-size:10px;font-weight:700;
+    line-height:17px;text-align:center;display:none;
+  }
+  .nav-badge.show{display:block}
+
+  /* ---------- Тост ---------- */
+  .toast-wrap{
+    position:fixed;left:0;right:0;z-index:60;pointer-events:none;
+    bottom:calc(var(--nav-h) + env(safe-area-inset-bottom) + 14px);
+    display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 16px;
+  }
+  .toast{
+    background:#2B1B36;color:#fff;padding:11px 16px;border-radius:12px;
+    font-size:14px;line-height:1.4;box-shadow:0 10px 26px rgba(0,0,0,.24);
+    opacity:0;transform:translateY(10px);transition:opacity .24s,transform .24s;
+    max-width:100%;text-align:center;
+  }
+  .toast.show{opacity:1;transform:none}
+  .toast.ok{background:#2E7D46}
+  .toast.err{background:#C0392B}
+  .banner{
+    background:#FFF4E5;border:1px solid #FFD9A8;color:#8A5A00;
+    border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5;margin-bottom:14px;
+  }
+  @media (max-width:380px){
+    .row{grid-template-columns:1fr}
+    .stat .v{font-size:17px}
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1>💅 Журнал Мастера</h1>
+  <p>Учёт клиентов и напоминания</p>
+  <button class="install-btn" id="installBtn" type="button">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+    Установить приложение
+  </button>
+</header>
+
+<main class="container">
+  <div class="banner" id="dbError" hidden></div>
+
+  <!-- ЖУРНАЛ -->
+  <section id="journal" class="section active">
+    <div class="card">
+      <h2 id="formTitle">📝 Новая запись</h2>
+      <form id="recordForm" novalidate>
+        <div class="field">
+          <label for="date">Дата</label>
+          <input type="date" id="date" required>
+        </div>
+
+        <div class="field">
+          <label for="clientName">Имя клиента</label>
+          <input type="text" id="clientName" placeholder="Введите имя" autocomplete="off" autocapitalize="words" required>
+        </div>
+
+        <div class="field">
+          <label for="procedure">Процедура</label>
+          <select id="procedure" required>
+            <option value="">Выберите процедуру</option>
+            <option value="Наращивание ресниц">Наращивание ресниц</option>
+            <option value="Коррекция ресниц">Коррекция ресниц</option>
+            <option value="Снятие ресниц">Снятие ресниц</option>
+            <option value="Ламинирование">Ламинирование</option>
+            <option value="Ботокс ресниц">Ботокс ресниц</option>
+            <option value="Окрашивание">Окрашивание</option>
+            <option value="Другое">Другое</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="effect">Эффект</label>
+            <input type="text" id="effect" placeholder="2D, 3D">
+          </div>
+          <div class="field">
+            <label for="length">Длина (мм)</label>
+            <input type="text" id="length" inputmode="numeric" placeholder="10–12">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="volume">Объём</label>
+            <input type="text" id="volume" placeholder="полный">
+          </div>
+          <div class="field">
+            <label for="curl">Изгиб</label>
+            <input type="text" id="curl" placeholder="C, D, L">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="price">Стоимость (₽)</label>
+          <input type="number" id="price" inputmode="decimal" min="0" step="50" placeholder="0">
+        </div>
+
+        <div class="field">
+          <label for="reminderDate">🔔 Напомнить о следующем визите</label>
+          <input type="datetime-local" id="reminderDate">
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="masterSign">Подпись мастера</label>
+            <input type="text" id="masterSign" placeholder="Ваше имя" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="clientSign">Подпись клиента</label>
+            <input type="text" id="clientSign" placeholder="Имя клиента" autocomplete="off">
+          </div>
+        </div>
+
+        <button type="submit" class="btn" id="submitBtn">💾 Сохранить запись</button>
+        <button type="button" class="btn ghost hidden" id="cancelEditBtn" style="margin-top:8px">Отменить редактирование</button>
+      </form>
+    </div>
+
+    <div class="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="searchInput" placeholder="Поиск по имени или процедуре" autocomplete="off">
+    </div>
+
+    <div id="recordsList"></div>
+  </section>
+
+  <!-- НАПОМИНАНИЯ -->
+  <section id="reminders" class="section">
+    <div class="card">
+      <h2>➕ Новое напоминание</h2>
+      <div class="field">
+        <label for="reminderText">Текст напоминания</label>
+        <input type="text" id="reminderText" placeholder="Например: Закупить материалы" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="reminderDateTime">Дата и время</label>
+        <input type="datetime-local" id="reminderDateTime">
+      </div>
+      <button type="button" class="btn" id="addReminderBtn">🔔 Создать напоминание</button>
+      <button type="button" class="btn ghost hidden" id="notifyBtn" style="margin-top:8px">Разрешить уведомления</button>
+      <p id="notifyHint" style="font-size:12px;color:#9A93A4;margin-top:10px;line-height:1.5" hidden></p>
+    </div>
+
+    <h2 style="font-size:14px;font-weight:700;color:#6E6379;margin:18px 2px 10px">Активные напоминания</h2>
+    <div id="remindersList"></div>
+  </section>
+
+  <!-- СТАТИСТИКА -->
+  <section id="stats" class="section">
+    <div class="stats">
+      <div class="stat"><div class="v" id="totalClients">0</div><div class="l">Всего клиентов</div></div>
+      <div class="stat"><div class="v" id="totalIncome">0 ₽</div><div class="l">Доход за всё время</div></div>
+      <div class="stat"><div class="v" id="monthIncome">0 ₽</div><div class="l">Доход за месяц</div></div>
+      <div class="stat"><div class="v" id="todayClients">0</div><div class="l">Визитов сегодня</div></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>🕒 Последние 10 записей</h2>
+      <div id="recentRecords"></div>
+    </div>
+
+    <div class="card">
+      <h2>💾 Данные <span class="hint" id="dataCount"></span></h2>
+      <p style="font-size:12.5px;color:#8B8296;line-height:1.55;margin-bottom:12px">
+        Записи хранятся только в этом браузере. Скачайте копию, чтобы не потерять их при очистке данных.
+      </p>
+      <button type="button" class="btn ghost" id="exportBtn">⬇️ Скачать резервную копию</button>
+    </div>
+  </section>
+
+  <!-- ШАБЛОНЫ -->
+  <section id="templates" class="section">
+    <div class="card">
+      <h2>⚡ Быстрые шаблоны</h2>
+      <p style="font-size:12.5px;color:#8B8296;margin-bottom:12px;line-height:1.55">
+        Нажмите на шаблон — он заполнит форму «Новая запись».
+      </p>
+      <div class="chips" id="templatesList"></div>
+    </div>
+
+    <div class="card">
+      <h2>💡 Свой шаблон</h2>
+      <div class="field">
+        <label for="templateName">Название</label>
+        <input type="text" id="templateName" placeholder="Например: Мой любимый объём" autocomplete="off">
+      </div>
+      <p style="font-size:12px;color:#9A93A4;margin-bottom:12px;line-height:1.5" id="templatePreview">
+        Значения берутся из формы «Новая запись».
+      </p>
+      <button type="button" class="btn" id="saveTemplateBtn">💾 Сохранить шаблон</button>
+    </div>
+  </section>
+</main>
+
+<nav class="nav" role="tablist" aria-label="Разделы">
+  <button class="nav-btn active" type="button" data-tab="journal" role="tab" aria-selected="true" aria-controls="journal">
+    <svg viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 12h8M8 16h5"/></svg>
+    <span>Журнал</span>
+  </button>
+  <button class="nav-btn" type="button" data-tab="reminders" role="tab" aria-selected="false" aria-controls="reminders">
+    <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+    <span>Напоминания</span>
+    <span class="nav-badge" id="navBadge">0</span>
+  </button>
+  <button class="nav-btn" type="button" data-tab="stats" role="tab" aria-selected="false" aria-controls="stats">
+    <svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+    <span>Статистика</span>
+  </button>
+  <button class="nav-btn" type="button" data-tab="templates" role="tab" aria-selected="false" aria-controls="templates">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg>
+    <span>Шаблоны</span>
+  </button>
+</nav>
+
+<div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
+
+<noscript>
+  <div class="container"><div class="banner">Для работы журнала нужен включённый JavaScript.</div></div>
+</noscript>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============================ Утилиты ============================ */
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+
+  function todayISO() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  // «2026-11-08» -> локальная дата (без сдвига в UTC, как у new Date(str))
+  function parseYMD(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return isNaN(d) ? null : d;
+  }
+
+  function formatDate(s) {
+    const d = parseYMD(s);
+    return d ? d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+  }
+
+  function formatDateTime(s) {
+    const d = new Date(s);
+    if (isNaN(d)) return '—';
+    return d.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  const moneyFmt = new Intl.NumberFormat('ru-RU');
+  const money = (v) => moneyFmt.format(Math.round(Number(v) || 0)) + ' ₽';
+
+  /* ============================ Тосты ============================ */
+  let toastTimer = null;
+  function toast(text, kind) {
+    const wrap = $('#toastWrap');
+    const el = document.createElement('div');
+    el.className = 'toast' + (kind ? ' ' + kind : '');
+    el.textContent = text;
+    wrap.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 300);
+    }, 2400);
+  }
+
+  /* ============================ IndexedDB ============================ */
+  const DB_NAME = 'MasterJournalDB';
+  const DB_VERSION = 1;
+  let db = null;
+
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      if (!('indexedDB' in window)) {
+        reject(new Error('Браузер не поддерживает IndexedDB'));
+        return;
+      }
+      let req;
+      try {
+        req = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains('records')) {
+          const s = d.createObjectStore('records', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('date', 'date', { unique: false });
+        }
+        if (!d.objectStoreNames.contains('reminders')) {
+          d.createObjectStore('reminders', { keyPath: 'id', autoIncrement: true });
+        }
+        if (!d.objectStoreNames.contains('templates')) {
+          d.createObjectStore('templates', { keyPath: 'id', autoIncrement: true });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('Не удалось открыть базу'));
+      req.onblocked = () => reject(new Error('База занята другой вкладкой — закройте её и обновите страницу'));
+    });
+  }
+
+  function dbAll(name) {
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(name, 'readonly').objectStore(name).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  // Резолвимся по завершении транзакции, а не по onsuccess запроса:
+  // так следующее чтение гарантированно увидит уже записанные данные.
+  function dbWrite(name, fn) {
+    return new Promise((resolve, reject) => {
+      let tx;
+      try {
+        tx = db.transaction(name, 'readwrite');
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      let result;
+      tx.oncomplete = () => resolve(result);
+      tx.onabort = () => reject(tx.error || new Error('Транзакция прервана'));
+      tx.onerror = () => reject(tx.error || new Error('Ошибка записи'));
+      try {
+        const req = fn(tx.objectStore(name));
+        if (req) req.onsuccess = () => { result = req.result; };
+      } catch (e) {
+        try { tx.abort(); } catch (ignore) { /* уже завершена */ }
+        reject(e);
+      }
+    });
+  }
+
+  const dbAdd = (name, value) => dbWrite(name, (os) => os.add(value));
+  const dbPut = (name, value) => dbWrite(name, (os) => os.put(value));
+  const dbDel = (name, key) => dbWrite(name, (os) => os.delete(key));
+
+  /* ============================ Состояние ============================ */
+  const state = {
+    records: [],
+    reminders: [],
+    templates: [],
+    editingId: null,
+    query: ''
+  };
+
+  const BUILTIN_TEMPLATES = [
+    { name: 'Классика 2D, 11 мм, C', procedure: 'Наращивание ресниц', effect: '2D', length: '11', volume: 'полный', curl: 'C' },
+    { name: 'Объём 3D, 10 мм, D', procedure: 'Наращивание ресниц', effect: '3D', length: '10', volume: 'полный', curl: 'D' },
+    { name: 'Мега-объём, 9 мм, L', procedure: 'Наращивание ресниц', effect: 'Мега-объём', length: '9', volume: 'полный', curl: 'L' },
+    { name: 'Коррекция, 2D, 11 мм', procedure: 'Коррекция ресниц', effect: '2D', length: '11', volume: 'неполный', curl: 'C' }
+  ];
+
+  async function refresh() {
+    const res = await Promise.all([dbAll('records'), dbAll('reminders'), dbAll('templates')]);
+    state.records = res[0];
+    state.reminders = res[1];
+    state.templates = res[2];
+  }
+
+  function sortRecords(a, b) {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return (b.id || 0) - (a.id || 0);
+  }
+
+  /* ============================ Рендер: записи ============================ */
+  function recordCard(r) {
+    const badges = [];
+    if (r.procedure) badges.push('<span class="badge brand">' + esc(r.procedure) + '</span>');
+    if (r.effect) badges.push('<span class="badge">' + esc(r.effect) + '</span>');
+    if (r.length) badges.push('<span class="badge">' + esc(r.length) + ' мм</span>');
+    if (r.volume) badges.push('<span class="badge">' + esc(r.volume) + '</span>');
+    if (r.curl) badges.push('<span class="badge">изгиб ' + esc(r.curl) + '</span>');
+
+    const signs = [];
+    if (r.masterSign) signs.push('✍️ Мастер: ' + esc(r.masterSign));
+    if (r.clientSign) signs.push('✍️ Клиент: ' + esc(r.clientSign));
+
+    return '' +
+      '<article class="record">' +
+        '<div class="record-top">' +
+          '<div style="min-width:0">' +
+            '<div class="record-date">📅 ' + formatDate(r.date) + '</div>' +
+            '<div class="record-name">' + esc(r.clientName) + '</div>' +
+          '</div>' +
+          '<div class="record-actions">' +
+            '<button class="icon-btn" type="button" data-act="edit" data-id="' + r.id + '" aria-label="Изменить запись">✎</button>' +
+            '<button class="icon-btn danger" type="button" data-act="del" data-id="' + r.id + '" aria-label="Удалить запись">✕</button>' +
+          '</div>' +
+        '</div>' +
+        (badges.length ? '<div class="badges">' + badges.join('') + '</div>' : '') +
+        '<div class="record-foot">' +
+          '<span class="price">' + (r.price ? money(r.price) : '—') + '</span>' +
+          (signs.length ? '<span class="signs">' + signs.join('<br>') + '</span>' : '<span class="signs"></span>') +
+        '</div>' +
+      '</article>';
+  }
+
+  function renderRecords() {
+    const q = state.query.trim().toLowerCase();
+    let list = state.records.slice().sort(sortRecords);
+    if (q) {
+      list = list.filter((r) =>
+        String(r.clientName || '').toLowerCase().includes(q) ||
+        String(r.procedure || '').toLowerCase().includes(q) ||
+        String(r.effect || '').toLowerCase().includes(q)
+      );
+    }
+    const box = $('#recordsList');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">' +
+        (q ? 'Ничего не найдено.<br>Попробуйте другой запрос.' : 'Записей пока нет.<br>Добавьте первую через форму выше.') +
+        '</div>';
+      return;
+    }
+    box.innerHTML = list.map(recordCard).join('');
+  }
+
+  /* ============================ Рендер: напоминания ============================ */
+  function activeReminders() {
+    return state.reminders
+      .filter((r) => !r.notified)
+      .sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+  }
+
+  function renderReminders() {
+    const list = activeReminders();
+    const box = $('#remindersList');
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">Активных напоминаний нет.</div>';
+    } else {
+      const now = Date.now();
+      box.innerHTML = list.map((r) => {
+        const overdue = new Date(r.dateTime).getTime() <= now;
+        return '' +
+          '<div class="reminder' + (overdue ? ' overdue' : '') + '">' +
+            '<div class="reminder-body">' +
+              '<div class="reminder-text">' + esc(r.text) + '</div>' +
+              '<div class="reminder-time">' + (overdue ? '⚠️ Просрочено: ' : '🔔 ') + formatDateTime(r.dateTime) + '</div>' +
+            '</div>' +
+            '<button class="icon-btn danger" type="button" data-act="del-reminder" data-id="' + r.id + '" aria-label="Удалить напоминание">✕</button>' +
+          '</div>';
+      }).join('');
+    }
+    updateNavBadge();
+  }
+
+  function updateNavBadge() {
+    const n = activeReminders().length;
+    const badge = $('#navBadge');
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.classList.toggle('show', n > 0);
+  }
+
+  /* ============================ Рендер: статистика ============================ */
+  function renderStats() {
+    const records = state.records;
+    const now = new Date();
+
+    const clients = new Set(records.map((r) => String(r.clientName || '').trim().toLowerCase()).filter(Boolean));
+    $('#totalClients').textContent = String(clients.size);
+
+    let total = 0;
+    let month = 0;
+    let today = 0;
+    const todayStr = todayISO();
+
+    records.forEach((r) => {
+      const price = Number(r.price) || 0;
+      total += price;
+      const d = parseYMD(r.date);
+      if (d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) month += price;
+      if (r.date === todayStr) today += 1;
+    });
+
+    $('#totalIncome').textContent = money(total);
+    $('#monthIncome').textContent = money(month);
+    $('#todayClients').textContent = String(today);
+
+    const recent = records.slice().sort(sortRecords).slice(0, 10);
+    $('#recentRecords').innerHTML = recent.length
+      ? recent.map((r) => '' +
+          '<div style="padding:9px 0;border-bottom:1px solid #F4F0F8">' +
+            '<div style="font-size:13.5px;line-height:1.4"><b>' + esc(r.clientName) + '</b> · ' + esc(r.procedure) + '</div>' +
+            '<div style="font-size:12px;color:#9A93A4;margin-top:2px">' + formatDate(r.date) + ' · ' + (r.price ? money(r.price) : '—') + '</div>' +
+          '</div>').join('')
+      : '<div class="empty" style="padding:16px 0">Пока пусто</div>';
+
+    $('#dataCount').textContent = records.length ? '· записей: ' + records.length : '';
+  }
+
+  /* ============================ Рендер: шаблоны ============================ */
+  function renderTemplates() {
+    const box = $('#templatesList');
+    const items = BUILTIN_TEMPLATES.map((t) => ({ t: t, custom: false }))
+      .concat(state.templates.map((t) => ({ t: t, custom: true })));
+
+    box.innerHTML = items.map((item, i) => {
+      const t = item.t;
+      const idx = item.custom ? 'c' + String(i - BUILTIN_TEMPLATES.length) : 'b' + i;
+      return '<span class="chip-row">' +
+        '<button class="chip" type="button" data-template="' + idx + '">' + esc(t.name) + '</button>' +
+        (item.custom ? '<button class="chip-del" type="button" data-template-del="' + t.id + '" aria-label="Удалить шаблон">✕</button>' : '') +
+      '</span>';
+    }).join('');
+  }
+
+  function allTemplates() {
+    return BUILTIN_TEMPLATES.concat(state.templates);
+  }
+
+  function applyTemplate(t) {
+    if (!t) return;
+    $('#procedure').value = t.procedure || '';
+    $('#effect').value = t.effect || '';
+    $('#length').value = t.length || '';
+    $('#volume').value = t.volume || '';
+    $('#curl').value = t.curl || '';
+    showTab('journal');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => $('#clientName').focus(), 220);
+    toast('Шаблон применён — заполните имя клиента', 'ok');
+  }
+
+  /* ============================ Навигация ============================ */
+  function showTab(name) {
+    $$('.section').forEach((s) => s.classList.toggle('active', s.id === name));
+    $$('.nav-btn').forEach((b) => {
+      const on = b.dataset.tab === name;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    if (name === 'stats') renderStats();
+    if (name === 'reminders') renderReminders();
+    if (name === 'templates') { renderTemplates(); updateTemplatePreview(); }
+    if (name === 'journal') renderRecords();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function updateTemplatePreview() {
+    const parts = [
+      $('#procedure').value,
+      $('#effect').value,
+      $('#length').value ? $('#length').value + ' мм' : '',
+      $('#volume').value,
+      $('#curl').value ? 'изгиб ' + $('#curl').value : ''
+    ].filter(Boolean);
+    $('#templatePreview').textContent = parts.length
+      ? 'Будет сохранено: ' + parts.join(' · ')
+      : 'Значения берутся из формы «Новая запись».';
+  }
+
+  /* ============================ Форма записи ============================ */
+  function resetForm() {
+    state.editingId = null;
+    $('#recordForm').reset();
+    $('#date').value = todayISO();
+    $('#formTitle').textContent = '📝 Новая запись';
+    $('#submitBtn').textContent = '💾 Сохранить запись';
+    $('#cancelEditBtn').classList.add('hidden');
+  }
+
+  function startEdit(id) {
+    const r = state.records.find((x) => x.id === id);
+    if (!r) return;
+    state.editingId = id;
+    $('#date').value = r.date || todayISO();
+    $('#clientName').value = r.clientName || '';
+    $('#procedure').value = r.procedure || '';
+    $('#effect').value = r.effect || '';
+    $('#length').value = r.length || '';
+    $('#volume').value = r.volume || '';
+    $('#curl').value = r.curl || '';
+    $('#price').value = r.price || '';
+    $('#reminderDate').value = '';
+    $('#masterSign').value = r.masterSign || '';
+    $('#clientSign').value = r.clientSign || '';
+    $('#formTitle').textContent = '✏️ Редактирование записи';
+    $('#submitBtn').textContent = '💾 Обновить запись';
+    $('#cancelEditBtn').classList.remove('hidden');
+    showTab('journal');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function onSubmit(e) {
+    e.preventDefault();
+
+    const record = {
+      date: $('#date').value,
+      clientName: $('#clientName').value.trim(),
+      procedure: $('#procedure').value,
+      effect: $('#effect').value.trim(),
+      length: $('#length').value.trim(),
+      volume: $('#volume').value.trim(),
+      curl: $('#curl').value.trim(),
+      price: Number($('#price').value) || 0,
+      reminderDate: $('#reminderDate').value,
+      masterSign: $('#masterSign').value.trim(),
+      clientSign: $('#clientSign').value.trim(),
+      timestamp: new Date().toISOString()
+    };
+
+    if (!record.date) { toast('Укажите дату', 'err'); $('#date').focus(); return; }
+    if (!record.clientName) { toast('Укажите имя клиента', 'err'); $('#clientName').focus(); return; }
+    if (!record.procedure) { toast('Выберите процедуру', 'err'); $('#procedure').focus(); return; }
+
+    const editingId = state.editingId;
+    try {
+      if (editingId) {
+        const old = state.records.find((x) => x.id === editingId);
+        record.id = editingId;
+        record.timestamp = (old && old.timestamp) || record.timestamp;
+        await dbPut('records', record);
+      } else {
+        await dbAdd('records', record);
+        // Напоминание создаём только для новой записи, чтобы не плодить дубликаты
+        if (record.reminderDate) {
+          await dbAdd('reminders', {
+            text: 'Визит клиента: ' + record.clientName,
+            dateTime: record.reminderDate,
+            notified: false,
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
+
+      await refresh();
+      resetForm();
+      renderRecords();
+      renderStats();
+      renderReminders();
+      toast(editingId ? 'Запись обновлена' : 'Запись сохранена', 'ok');
+
+      if (record.reminderDate && !editingId) askNotifyPermission();
+    } catch (err) {
+      console.error(err);
+      toast('Не удалось сохранить: ' + (err && err.message ? err.message : 'ошибка'), 'err');
+    }
+  }
+
+  async function removeRecord(id) {
+    const r = state.records.find((x) => x.id === id);
+    const label = r ? '«' + r.clientName + '» от ' + formatDate(r.date) : 'эту запись';
+    if (!confirm('Удалить запись ' + label + '?')) return;
+    try {
+      await dbDel('records', id);
+      if (state.editingId === id) resetForm();
+      await refresh();
+      renderRecords();
+      renderStats();
+      toast('Запись удалена', 'ok');
+    } catch (err) {
+      toast('Не удалось удалить запись', 'err');
+    }
+  }
+
+  /* ============================ Напоминания ============================ */
+  async function addReminder() {
+    const text = $('#reminderText').value.trim();
+    const dateTime = $('#reminderDateTime').value;
+    if (!text) { toast('Введите текст напоминания', 'err'); $('#reminderText').focus(); return; }
+    if (!dateTime) { toast('Укажите дату и время', 'err'); $('#reminderDateTime').focus(); return; }
+
+    try {
+      await dbAdd('reminders', {
+        text: text,
+        dateTime: dateTime,
+        notified: false,
+        createdAt: new Date().toISOString()
+      });
+      $('#reminderText').value = '';
+      $('#reminderDateTime').value = '';
+      await refresh();
+      renderReminders();
+      renderStats();
+      toast('Напоминание создано', 'ok');
+      askNotifyPermission();
+    } catch (err) {
+      toast('Не удалось создать напоминание', 'err');
+    }
+  }
+
+  async function removeReminder(id) {
+    if (!confirm('Удалить это напоминание?')) return;
+    try {
+      await dbDel('reminders', id);
+      await refresh();
+      renderReminders();
+      toast('Напоминание удалено', 'ok');
+    } catch (err) {
+      toast('Не удалось удалить напоминание', 'err');
+    }
+  }
+
+  /* ============================ Уведомления ============================ */
+  function notifySupported() {
+    return 'Notification' in window;
+  }
+
+  function askNotifyPermission() {
+    if (!notifySupported() || Notification.permission !== 'default') return;
+    try {
+      // Запрашиваем только в ответ на действие пользователя — иначе браузер блокирует
+      Notification.requestPermission().then(updateNotifyUI).catch(() => {});
+    } catch (e) { /* старые браузеры */ }
+  }
+
+  async function updateNotifyUI() {
+    const btn = $('#notifyBtn');
+    const hint = $('#notifyHint');
+
+    if (!notifySupported()) {
+      hint.hidden = false;
+      hint.textContent = 'Этот браузер не поддерживает системные уведомления — напоминания будут показываться внутри приложения.';
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      btn.classList.add('hidden');
+      hint.hidden = false;
+      hint.textContent = 'Уведомления включены. Напоминание придёт, пока приложение открыто.';
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      btn.classList.add('hidden');
+      hint.hidden = false;
+      hint.textContent = 'Уведомления запрещены в настройках браузера — напоминания будут показываться внутри приложения.';
+      return;
+    }
+    hint.hidden = false;
+    hint.textContent = 'Разрешите уведомления, чтобы не пропустить визит клиента.';
+    btn.classList.remove('hidden');
+    btn.onclick = () => {
+      Notification.requestPermission().then(updateNotifyUI).catch(() => {});
+    };
+  }
+
+  async function showNotification(title, body) {
+    try {
+      if (!notifySupported() || Notification.permission !== 'granted') {
+        toast('🔔 ' + body);
+        return;
+      }
+      const reg = navigator.serviceWorker ? await navigator.serviceWorker.getRegistration() : null;
+      if (reg && reg.showNotification) {
+        // На Android Chrome new Notification() не работает — нужен Service Worker
+        await reg.showNotification(title, {
+          body: body,
+          icon: 'icons/icon-192.png',
+          badge: 'icons/icon-192.png',
+          vibrate: [120, 60, 120]
+        });
+      } else {
+        new Notification(title, { body: body, icon: 'icons/icon-192.png' });
+      }
+    } catch (e) {
+      toast('🔔 ' + body);
+    }
+  }
+
+  let reminderTimer = null;
+  async function checkReminders() {
+    if (!db) return;
+    try {
+      const now = Date.now();
+      const due = state.reminders.filter((r) => !r.notified && new Date(r.dateTime).getTime() <= now);
+      for (const r of due) {
+        await showNotification('🔔 Журнал Мастера', r.text);
+        r.notified = true;
+        await dbPut('reminders', r);
+      }
+      if (due.length) {
+        await refresh();
+        renderReminders();
+      }
+    } catch (err) {
+      console.warn('checkReminders', err);
+    } finally {
+      clearTimeout(reminderTimer);
+      reminderTimer = setTimeout(checkReminders, 30000);
+    }
+  }
+
+  /* ============================ Шаблоны ============================ */
+  async function saveCustomTemplate() {
+    const name = $('#templateName').value.trim();
+    if (!name) { toast('Введите название шаблона', 'err'); $('#templateName').focus(); return; }
+    if (!$('#procedure').value && !$('#effect').value) {
+      toast('Сначала заполните форму «Новая запись»', 'err');
+      return;
+    }
+    try {
+      await dbAdd('templates', {
+        name: name,
+        procedure: $('#procedure').value,
+        effect: $('#effect').value.trim(),
+        length: $('#length').value.trim(),
+        volume: $('#volume').value.trim(),
+        curl: $('#curl').value.trim(),
+        createdAt: new Date().toISOString()
+      });
+      $('#templateName').value = '';
+      await refresh();
+      renderTemplates();
+      toast('Шаблон сохранён', 'ok');
+    } catch (err) {
+      toast('Не удалось сохранить шаблон', 'err');
+    }
+  }
+
+  async function removeTemplate(id) {
+    if (!confirm('Удалить этот шаблон?')) return;
+    try {
+      await dbDel('templates', id);
+      await refresh();
+      renderTemplates();
+      toast('Шаблон удалён', 'ok');
+    } catch (err) {
+      toast('Не удалось удалить шаблон', 'err');
+    }
+  }
+
+  /* ============================ Экспорт ============================ */
+  function exportData() {
+    const payload = {
+      app: 'master-journal',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      records: state.records,
+      reminders: state.reminders,
+      templates: state.templates
+    };
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'master-journal-' + todayISO() + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+      toast('Копия скачана', 'ok');
+    } catch (err) {
+      toast('Не удалось создать файл', 'err');
+    }
+  }
+
+  /* ============================ PWA ============================ */
+  let deferredPrompt = null;
+
+  function setupInstall() {
+    const btn = $('#installBtn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      btn.classList.add('show');
+    });
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null;
+      btn.classList.remove('show');
+      toast('Приложение установлено', 'ok');
+    });
+    btn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      try {
+        await deferredPrompt.userChoice;
+      } catch (e) { /* ignore */ }
+      deferredPrompt = null;
+      btn.classList.remove('show');
+    });
+  }
+
+  function registerSW() {
+    if (!('serviceWorker' in navigator)) return;
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+
+    const go = () => {
+      navigator.serviceWorker.register('sw.js').catch((err) => {
+        console.warn('Service Worker не зарегистрирован:', err);
+      });
+    };
+
+    // init() асинхронный: к этому моменту load уже мог пройти.
+    // Если так — подписываться на load бессмысленно, регистрируем сразу.
+    if (document.readyState === 'complete') {
+      go();
+    } else {
+      window.addEventListener('load', go, { once: true });
+    }
+  }
+
+  /* ============================ Инициализация ============================ */
+  function bindUI() {
+    $$('.nav-btn').forEach((b) => {
+      b.addEventListener('click', () => showTab(b.dataset.tab));
+    });
+
+    $('#recordForm').addEventListener('submit', onSubmit);
+    $('#cancelEditBtn').addEventListener('click', () => { resetForm(); toast('Редактирование отменено'); });
+
+    $('#recordsList').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      if (btn.dataset.act === 'edit') startEdit(id);
+      if (btn.dataset.act === 'del') removeRecord(id);
+    });
+
+    let searchTimer = null;
+    $('#searchInput').addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
+      const v = e.target.value;
+      searchTimer = setTimeout(() => {
+        state.query = v;
+        renderRecords();
+      }, 120);
+    });
+
+    $('#addReminderBtn').addEventListener('click', addReminder);
+    $('#remindersList').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act="del-reminder"]');
+      if (btn) removeReminder(Number(btn.dataset.id));
+    });
+
+    $('#exportBtn').addEventListener('click', exportData);
+    $('#saveTemplateBtn').addEventListener('click', saveCustomTemplate);
+
+    $('#templatesList').addEventListener('click', (e) => {
+      const del = e.target.closest('button[data-template-del]');
+      if (del) { removeTemplate(Number(del.dataset.templateDel)); return; }
+      const chip = e.target.closest('button[data-template]');
+      if (!chip) return;
+      const key = chip.dataset.template;
+      // b0..b3 — встроенные, c0.. — пользовательские (смещены на длину встроенных)
+      const n = Number(key.slice(1));
+      const idx = key.charAt(0) === 'c' ? BUILTIN_TEMPLATES.length + n : n;
+      applyTemplate(allTemplates()[idx]);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) checkReminders();
+    });
+  }
+
+  function showDbError(err) {
+    const box = $('#dbError');
+    box.hidden = false;
+    box.innerHTML = '<b>Хранилище недоступно.</b><br>' +
+      'Приложение не может открыть локальную базу (IndexedDB). ' +
+      'Попробуйте открыть страницу не через file://, а по адресу http(s), либо отключите приватный режим.<br>' +
+      '<span style="opacity:.7;font-size:12px">' + esc(err && err.message ? err.message : String(err)) + '</span>';
+    console.error(err);
+  }
+
+  async function init() {
+    $('#date').value = todayISO();
+    bindUI();
+    setupInstall();
+    updateNotifyUI();
+
+    try {
+      db = await openDB();
+    } catch (err) {
+      showDbError(err);
+      return;
+    }
+
+    try {
+      await refresh();
+    } catch (err) {
+      showDbError(err);
+      return;
+    }
+
+    renderRecords();
+    renderReminders();
+    renderStats();
+    renderTemplates();
+    checkReminders();
+    registerSW();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

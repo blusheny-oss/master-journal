@@ -2,7 +2,7 @@
    Стратегия: cache-first для оболочки приложения, с фоновым обновлением.
    Данные (IndexedDB) Service Worker не трогает — они остаются в браузере. */
 
-const CACHE = 'master-journal-v1';
+const CACHE = 'master-journal-v2';
 
 const ASSETS = [
   './',

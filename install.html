@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#7B1FA2">
+<title>Установить «Журнал Мастера»</title>
+<style>
+  html,body{height:100%}
+  body{
+    margin:0;padding:24px 18px;box-sizing:border-box;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;gap:0;
+    background:#F6F5F9;color:#221A2C;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  .icon{width:96px;height:96px;border-radius:24px;box-shadow:0 12px 30px rgba(94,53,177,.22);display:block}
+  h1{font-size:24px;margin:18px 0 4px;letter-spacing:-.02em}
+  .sub{color:#7C7488;font-size:14px;margin:0 0 22px;line-height:1.45;max-width:300px}
+  button{
+    width:100%;max-width:340px;height:52px;border:none;border-radius:14px;cursor:pointer;
+    background:linear-gradient(160deg,#8E24AA,#5E35B1);color:#fff;font-size:16px;font-weight:700;
+    box-shadow:0 10px 24px rgba(94,53,177,.28);
+  }
+  button:active{transform:scale(.99)}
+  button[disabled]{opacity:.55;box-shadow:none}
+  .facts{display:flex;gap:18px;margin-top:22px;font-size:12px;color:#7C7488;flex-wrap:wrap;justify-content:center}
+  .facts div{display:flex;align-items:center;gap:6px}
+  .steps{
+    display:none;margin-top:20px;max-width:340px;width:100%;text-align:left;
+    background:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 6px 20px rgba(34,26,44,.08);
+    font-size:14px;line-height:1.55;color:#3B3145;
+  }
+  .steps b{display:block;margin-bottom:8px;font-size:14px}
+  .steps ol{margin:0;padding-left:18px}
+  .steps li{margin-bottom:6px}
+  .done{display:none;margin-top:18px;font-size:14px;font-weight:600;color:#2E7D32}
+</style>
+</head>
+<body>
+  <img class="icon" src="icons/icon-192.png" alt="Журнал Мастера">
+  <h1>Журнал Мастера</h1>
+  <p class="sub">Клиенты, процедуры и напоминания. Ставится на телефон как обычное приложение.</p>
+
+  <button id="install" type="button">Установить приложение</button>
+  <div class="done" id="done">Уже установлено</div>
+
+  <div class="facts">
+    <div>● работает без интернета</div>
+    <div>● данные на телефоне</div>
+  </div>
+
+  <div class="steps" id="steps">
+    <b id="stepsTitle"></b>
+    <ol id="stepsList"></ol>
+  </div>
+
+<script>
+  var btn = document.getElementById('install');
+  var steps = document.getElementById('steps');
+  var stepsTitle = document.getElementById('stepsTitle');
+  var stepsList = document.getElementById('stepsList');
+  var done = document.getElementById('done');
+
+  var ua = navigator.userAgent;
+  var isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  function showSteps() {
+    stepsTitle.textContent = isIOS ? 'На iPhone установка через Safari' : 'Установка на Android';
+    stepsList.innerHTML = isIOS
+      ? '<li>Нажмите «Поделиться» внизу экрана</li><li>Выберите «На экран «Домой»»</li><li>Готово: иконка появится на рабочем столе</li>'
+      : '<li>Откройте меню браузера — три точки справа вверху</li><li>Выберите «Установить приложение» или «Добавить на главный экран»</li><li>Готово: иконка появится на рабочем столе</li>';
+    steps.style.display = 'block';
+  }
+
+  if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+    btn.style.display = 'none';
+    done.style.display = 'block';
+  }
+
+  var deferred = null;
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferred = e;
+  });
+
+  window.addEventListener('appinstalled', function () {
+    btn.style.display = 'none';
+    steps.style.display = 'none';
+    done.style.display = 'block';
+  });
+
+  btn.addEventListener('click', function () {
+    if (deferred) {
+      deferred.prompt();
+      deferred.userChoice && deferred.userChoice.then(function () { deferred = null; });
+      return;
+    }
+    showSteps();
+  });
+</script>
+</body>
+</html>
